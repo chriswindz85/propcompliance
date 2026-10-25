@@ -320,6 +320,8 @@ function TeamSheet({ open, onClose, orgId, companies, myId }) {
   const [err,setErr]         = useState(null);
   const [msg,setMsg]         = useState(null);
   const [confirmRemove,setConfirmRemove] = useState(null);
+  const [lastInvite,setLastInvite] = useState(null);
+  const [copied,setCopied] = useState(false);
 
   const orgCompanies = companies.filter(c=>c.organisation_id===orgId);
 
@@ -334,7 +336,7 @@ function TeamSheet({ open, onClose, orgId, companies, myId }) {
     setAccess(a.data||[]);
     setInvites(i.data||[]);
   }
-  useEffect(()=>{ if(open&&orgId) { setErr(null); setMsg(null); setConfirmRemove(null); refresh(); } },[open,orgId]);
+  useEffect(()=>{ if(open&&orgId) { setErr(null); setMsg(null); setConfirmRemove(null); setLastInvite(null); refresh(); } },[open,orgId]);
 
   const hasAccess = (uid,cid) => access.some(a=>a.user_id===uid&&a.company_id===cid);
 
@@ -364,7 +366,7 @@ function TeamSheet({ open, onClose, orgId, companies, myId }) {
     setBusy(true);
     const res = await supabase.from("invitations").insert({organisation_id:orgId,email:e,company_ids:picked,invited_by:myId});
     if(res.error) setErr(res.error.message);
-    else { setMsg(`Invite saved for ${e}. Ask them to open the app and sign up with exactly that email (leave Portfolio name blank). If they already have an account they just need to log in.`); setEmail(""); setPicked([]); }
+    else { setMsg(`Access saved for ${e}. Nothing has been emailed. Send them the message below so they can sign up.`); setLastInvite(e); setEmail(""); setPicked([]); }
     await refresh(); setBusy(false);
   }
 
@@ -377,14 +379,23 @@ function TeamSheet({ open, onClose, orgId, companies, myId }) {
 
   const label = {fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,marginTop:6};
   const nameOf = id => companies.find(c=>c.id===id)?.name||"Unknown company";
+  const inviteText = e => `Hi, I've given you access to PropCompliance.\n\n1. Open ${window.location.origin}\n2. Tap "Sign up"\n3. Use this exact email: ${e}\n4. Choose a password (8+ characters) and leave "Portfolio name" blank\n5. Click the confirmation link in the email you get, then log in.`;
+  function copyInvite(e) { navigator.clipboard.writeText(inviteText(e)).then(()=>{ setCopied(true); setTimeout(()=>setCopied(false),2000); }); }
 
   return (
     <Sheet open={open} onClose={onClose} title="Team & access">
       {err && <Banner kind="error">{err}</Banner>}
       {msg && <Banner kind="ok">{msg}</Banner>}
+      {lastInvite && (
+        <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:14,padding:14,marginBottom:14}}>
+          <div style={{fontSize:12,fontWeight:700,color:T.amber,marginBottom:6}}>Send this to them yourself (e.g. WhatsApp)</div>
+          <div style={{fontSize:12,color:T.text,whiteSpace:"pre-wrap",lineHeight:1.6,marginBottom:10}}>{inviteText(lastInvite)}</div>
+          <Btn label={copied?"✓ Copied!":"Copy message"} onClick={()=>copyInvite(lastInvite)} variant={copied?"ghost":"primary"} small/>
+        </div>
+      )}
 
       <div style={label}>People with access</div>
-      {members.length===0 && <div style={{fontSize:13,color:T.muted,marginBottom:16,lineHeight:1.5}}>Nobody else yet. Invite someone below. You (the owner) always see every company.</div>}
+      {members.length===0 && <div style={{fontSize:13,color:T.muted,marginBottom:16,lineHeight:1.5}}>Nobody else yet. Give someone access below. You (the owner) always see every company.</div>}
       {members.map(m=>(
         <div key={m.user_id} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:14,padding:"14px",marginBottom:10}}>
           <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10,wordBreak:"break-all"}}>{m.email}</div>
@@ -408,17 +419,17 @@ function TeamSheet({ open, onClose, orgId, companies, myId }) {
       ))}
 
       {invites.length>0 && <>
-        <div style={{...label,marginTop:18}}>Waiting to join</div>
+        <div style={{...label,marginTop:18}}>Waiting for them to sign up</div>
         {invites.map(inv=>(
           <div key={inv.id} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:14,padding:"12px 14px",marginBottom:10}}>
             <div style={{fontSize:13,fontWeight:700,color:T.text,wordBreak:"break-all"}}>{inv.email}</div>
             <div style={{fontSize:12,color:T.muted,margin:"4px 0 10px",lineHeight:1.5}}>Will see: {inv.company_ids.map(nameOf).join(", ")}</div>
-            <Btn label="Cancel invite" variant="danger" small disabled={busy} onClick={()=>revokeInvite(inv.id)}/>
+            <Btn label="Cancel access" variant="danger" small disabled={busy} onClick={()=>revokeInvite(inv.id)}/>
           </div>
         ))}
       </>}
 
-      <div style={{...label,marginTop:18}}>Invite someone</div>
+      <div style={{...label,marginTop:18}}>Give someone access</div>
       <Input label="Their email" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="name@example.com"/>
       <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Companies they can see</div>
       {orgCompanies.map(c=>(
@@ -429,9 +440,9 @@ function TeamSheet({ open, onClose, orgId, companies, myId }) {
       ))}
       <div style={{display:"flex",gap:10,marginTop:14}}>
         <Btn label="Close" variant="ghost" onClick={onClose}/>
-        <button onClick={sendInvite} disabled={busy} style={{flex:1,background:T.accent,color:"#fff",border:"none",borderRadius:10,padding:13,fontSize:14,fontWeight:700,cursor:busy?"not-allowed":"pointer",opacity:busy?0.6:1}}>Save invite</button>
+        <button onClick={sendInvite} disabled={busy} style={{flex:1,background:T.accent,color:"#fff",border:"none",borderRadius:10,padding:13,fontSize:14,fontWeight:700,cursor:busy?"not-allowed":"pointer",opacity:busy?0.6:1}}>Save access</button>
       </div>
-      <div style={{fontSize:11,color:T.muted,marginTop:12,lineHeight:1.5}}>No email is sent by the app. Message them yourself (e.g. on WhatsApp) with the site address and tell them to sign up with the email above.</div>
+      <div style={{fontSize:11,color:T.muted,marginTop:12,lineHeight:1.5}}>The app does not send any email. After you save, you get a ready-made message to send them yourself. They then sign up with the same email address.</div>
     </Sheet>
   );
 }
@@ -869,7 +880,7 @@ export default function App() {
             <Card>
               <div style={{fontSize:14,fontWeight:600,color:T.text,marginBottom:4}}>Team & access</div>
               <div style={{fontSize:12,color:T.muted,marginBottom:12,lineHeight:1.5}}>
-                Invite people by email and choose exactly which companies each person can see. You can switch access on or off at any time.
+                Give people access and choose exactly which companies each person can see. You can switch access on or off at any time.
               </div>
               <Btn label="Manage team & access" onClick={()=>setTeamOpen(true)}/>
             </Card>
