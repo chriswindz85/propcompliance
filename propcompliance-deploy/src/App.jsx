@@ -128,53 +128,36 @@ function CheckRow({ check, subtitle, onEdit }) {
   );
 }
 
-// ─── Auth Screen ──────────────────────────────────────────────────────────────
-function AuthScreen({ onAuth }) {
-  const [mode,setMode]       = useState("login"); // login | signup | invite
-  const [email,setEmail]     = useState("");
-  const [password,setPassword] = useState("");
-  const [orgName,setOrgName] = useState("");
-  const [inviteCode,setInviteCode] = useState("");
-  const [loading,setLoading] = useState(false);
-  const [error,setError]     = useState(null);
-  const [message,setMessage] = useState(null);
+// ─── Auth Screens ─────────────────────────────────────────────────────────────
+const FIELD_STYLE = {width:"100%",background:T.surface,border:`1px solid ${T.border2}`,borderRadius:10,padding:"11px 12px",color:T.text,fontSize:15,outline:"none",boxSizing:"border-box"};
 
-  async function handleLogin() {
-    setLoading(true); setError(null);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setError(error.message);
-    setLoading(false);
-  }
+function EyeIcon({ off }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      {off
+        ? <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12A3 3 0 1 1 9.88 9.88"/><line x1="1" y1="1" x2="23" y2="23"/></>
+        : <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>}
+    </svg>
+  );
+}
 
-  async function handleSignup() {
-    if (!orgName) { setError("Please enter a portfolio name"); return; }
-    setLoading(true); setError(null);
-    const { error } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { organisation_name: orgName } }
-    });
-    if (error) setError(error.message);
-    else setMessage("Check your email to confirm your account, then log in.");
-    setLoading(false);
-  }
+function PasswordField({ label, value, onChange, placeholder="••••••••", autoComplete }) {
+  const [show,setShow] = useState(false);
+  return (
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>{label}</div>
+      <div style={{position:"relative"}}>
+        <input type={show?"text":"password"} value={value} onChange={onChange} placeholder={placeholder} autoComplete={autoComplete} style={{...FIELD_STYLE,paddingRight:48}}/>
+        <button type="button" onClick={()=>setShow(s=>!s)} aria-label={show?"Hide password":"Show password"}
+          style={{position:"absolute",right:4,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:show?T.accent:T.muted,cursor:"pointer",padding:10,display:"flex",alignItems:"center"}}>
+          <EyeIcon off={show}/>
+        </button>
+      </div>
+    </div>
+  );
+}
 
-  async function handleInviteJoin() {
-    setLoading(true); setError(null);
-    // Sign up first, then we'll link to existing org via invite code
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) { setError(error.message); setLoading(false); return; }
-    // Look up org by invite code
-    const { data: org, error: orgErr } = await supabase
-      .from("organisations").select("id").eq("id", inviteCode).single();
-    if (orgErr || !org) { setError("Invalid invite code. Ask your partner for it."); setLoading(false); return; }
-    // Add as member
-    await supabase.from("organisation_members").insert({ organisation_id: inviteCode, user_id: data.user.id, role: "member" });
-    setMessage("Account created! Check your email to confirm, then log in.");
-    setLoading(false);
-  }
-
-  const btnLabel = loading ? "Please wait…" : mode==="login" ? "Log in" : mode==="signup" ? "Create account" : "Join portfolio";
-
+function AuthShell({ children }) {
   return (
     <div style={{minHeight:"100vh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Outfit','Helvetica Neue',sans-serif",padding:24,boxSizing:"border-box"}}>
       <div style={{width:"100%",maxWidth:360}}>
@@ -183,46 +166,284 @@ function AuthScreen({ onAuth }) {
           <div style={{fontSize:26,fontWeight:800,color:T.text,letterSpacing:"-0.5px"}}>PropCompliance</div>
           <div style={{fontSize:13,color:T.muted,marginTop:6}}>Property Portfolio Manager</div>
         </div>
-
-        {/* Mode tabs */}
-        <div style={{display:"flex",background:T.surface,borderRadius:12,padding:4,marginBottom:24,gap:3}}>
-          {[["login","Log in"],["signup","Sign up"],["invite","Join"]].map(([m,l])=>(
-            <button key={m} onClick={()=>{setMode(m);setError(null);setMessage(null);}}
-              style={{flex:1,background:mode===m?T.surface2:"transparent",border:mode===m?`1px solid ${T.border2}`:"1px solid transparent",color:mode===m?T.text:T.muted,padding:"8px 0",fontSize:12,fontWeight:700,borderRadius:9,cursor:"pointer"}}>{l}</button>
-          ))}
-        </div>
-
-        {message && <div style={{background:T.green+"22",border:`1px solid ${T.green}44`,borderRadius:10,padding:"12px",marginBottom:16,fontSize:13,color:T.green,lineHeight:1.5}}>{message}</div>}
-        {error   && <div style={{background:T.red+"22",border:`1px solid ${T.red}44`,borderRadius:10,padding:"12px",marginBottom:16,fontSize:13,color:T.red}}>{error}</div>}
-
-        <Input label="Email" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"/>
-        <Input label="Password" type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••"/>
-
-        {mode==="signup" && <Input label="Portfolio name" type="text" value={orgName} onChange={e=>setOrgName(e.target.value)} placeholder="e.g. Chris & Ben Properties"/>}
-        {mode==="invite" && <>
-          <Input label="Invite code" type="text" value={inviteCode} onChange={e=>setInviteCode(e.target.value)} placeholder="Paste invite code here"/>
-          <div style={{fontSize:12,color:T.muted,marginTop:-8,marginBottom:14,lineHeight:1.5}}>Ask your partner to go to Settings → Share Invite Code</div>
-        </>}
-
-        <button onClick={mode==="login"?handleLogin:mode==="signup"?handleSignup:handleInviteJoin}
-          disabled={loading}
-          style={{width:"100%",background:T.accent,color:"#fff",border:"none",borderRadius:12,padding:"14px",fontSize:15,fontWeight:700,cursor:loading?"not-allowed":"pointer",opacity:loading?0.7:1,marginTop:4}}>
-          {btnLabel}
-        </button>
-
-        {mode==="invite" && (
-          <div style={{marginTop:20,padding:"14px",background:T.surface,borderRadius:12,border:`1px solid ${T.border}`}}>
-            <div style={{fontSize:12,fontWeight:700,color:T.amber,marginBottom:6}}>How joining works</div>
-            <div style={{fontSize:12,color:T.muted,lineHeight:1.6}}>
-              1. Your partner creates an account first (Sign up tab)<br/>
-              2. They go to Settings → Copy Invite Code<br/>
-              3. You paste that code here and create your account<br/>
-              4. You'll both see the same portfolio data
-            </div>
-          </div>
-        )}
+        {children}
       </div>
     </div>
+  );
+}
+
+function Banner({ kind, children }) {
+  const c = kind==="error" ? T.red : T.green;
+  return <div style={{background:c+"22",border:`1px solid ${c}44`,borderRadius:10,padding:"12px",marginBottom:16,fontSize:13,color:c,lineHeight:1.5}}>{children}</div>;
+}
+
+function BigButton({ loading, onClick, children }) {
+  return (
+    <button onClick={onClick} disabled={loading}
+      style={{width:"100%",background:T.accent,color:"#fff",border:"none",borderRadius:12,padding:"14px",fontSize:15,fontWeight:700,cursor:loading?"not-allowed":"pointer",opacity:loading?0.7:1,marginTop:4}}>
+      {loading?"Please wait…":children}
+    </button>
+  );
+}
+
+function AuthScreen() {
+  const [mode,setMode]         = useState("login"); // login | signup | forgot
+  const [email,setEmail]       = useState("");
+  const [password,setPassword] = useState("");
+  const [confirm,setConfirm]   = useState("");
+  const [orgName,setOrgName]   = useState("");
+  const [loading,setLoading]   = useState(false);
+  const [error,setError]       = useState(null);
+  const [message,setMessage]   = useState(null);
+
+  function switchMode(m) { setMode(m); setError(null); setMessage(null); setPassword(""); setConfirm(""); }
+
+  async function handleLogin() {
+    if(!email||!password) { setError("Enter your email and password"); return; }
+    setLoading(true); setError(null);
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) setError(error.message);
+    setLoading(false);
+  }
+
+  async function handleSignup() {
+    if(!email.trim()) { setError("Enter your email"); return; }
+    if(password.length<8) { setError("Password must be at least 8 characters"); return; }
+    if(password!==confirm) { setError("The two passwords don't match"); return; }
+    setLoading(true); setError(null);
+    const { error } = await supabase.auth.signUp({
+      email: email.trim(), password,
+      options: { data: { organisation_name: orgName.trim() || undefined }, emailRedirectTo: window.location.origin }
+    });
+    if (error) setError(error.message);
+    else setMessage("Check your email and click the confirmation link, then come back and log in.");
+    setLoading(false);
+  }
+
+  async function handleForgot() {
+    if(!email.trim()) { setError("Enter your email address"); return; }
+    setLoading(true); setError(null);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin });
+    if (error) setError(error.message);
+    else setMessage("If that email has an account, a reset link is on its way. Check your inbox (and junk folder).");
+    setLoading(false);
+  }
+
+  const submit = mode==="login" ? handleLogin : mode==="signup" ? handleSignup : handleForgot;
+  const label  = mode==="login" ? "Log in" : mode==="signup" ? "Create account" : "Send reset link";
+
+  return (
+    <AuthShell>
+      {mode!=="forgot" && (
+        <div style={{display:"flex",background:T.surface,borderRadius:12,padding:4,marginBottom:24,gap:3}}>
+          {[["login","Log in"],["signup","Sign up"]].map(([m,l])=>(
+            <button key={m} onClick={()=>switchMode(m)}
+              style={{flex:1,background:mode===m?T.surface2:"transparent",border:mode===m?`1px solid ${T.border2}`:"1px solid transparent",color:mode===m?T.text:T.muted,padding:"9px 0",fontSize:13,fontWeight:700,borderRadius:9,cursor:"pointer"}}>{l}</button>
+          ))}
+        </div>
+      )}
+      {mode==="forgot" && <div style={{fontSize:18,fontWeight:800,color:T.text,marginBottom:6}}>Reset your password</div>}
+      {mode==="forgot" && <div style={{fontSize:13,color:T.muted,marginBottom:20,lineHeight:1.5}}>Enter your email and we'll send you a link to choose a new password.</div>}
+
+      {message && <Banner kind="ok">{message}</Banner>}
+      {error   && <Banner kind="error">{error}</Banner>}
+
+      <Input label="Email" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email"/>
+      {mode!=="forgot" && <PasswordField label="Password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete={mode==="login"?"current-password":"new-password"}/>}
+      {mode==="signup" && <>
+        <PasswordField label="Confirm password" value={confirm} onChange={e=>setConfirm(e.target.value)} autoComplete="new-password"/>
+        <Input label="Portfolio name (optional)" type="text" value={orgName} onChange={e=>setOrgName(e.target.value)} placeholder="e.g. Chris & Ben Properties"/>
+        <div style={{fontSize:12,color:T.muted,marginTop:-6,marginBottom:14,lineHeight:1.5}}>
+          Starting your own portfolio? Name it here. <strong style={{color:T.text}}>Been invited by someone? Leave this blank</strong> and sign up with the email address they invited.
+        </div>
+      </>}
+
+      <BigButton loading={loading} onClick={submit}>{label}</BigButton>
+
+      {mode==="login" && (
+        <div style={{textAlign:"center",marginTop:18}}>
+          <button onClick={()=>switchMode("forgot")} style={{background:"none",border:"none",color:T.accent,fontSize:13,fontWeight:600,cursor:"pointer",padding:8}}>Forgot password?</button>
+        </div>
+      )}
+      {mode==="forgot" && (
+        <div style={{textAlign:"center",marginTop:18}}>
+          <button onClick={()=>switchMode("login")} style={{background:"none",border:"none",color:T.accent,fontSize:13,fontWeight:600,cursor:"pointer",padding:8}}>‹ Back to log in</button>
+        </div>
+      )}
+    </AuthShell>
+  );
+}
+
+// Shown after someone clicks the link in a password-reset email
+function ResetPasswordScreen({ onDone }) {
+  const [password,setPassword] = useState("");
+  const [confirm,setConfirm]   = useState("");
+  const [loading,setLoading]   = useState(false);
+  const [error,setError]       = useState(null);
+  async function save() {
+    if(password.length<8) { setError("Password must be at least 8 characters"); return; }
+    if(password!==confirm) { setError("The two passwords don't match"); return; }
+    setLoading(true); setError(null);
+    const { error } = await supabase.auth.updateUser({ password });
+    setLoading(false);
+    if(error) setError(error.message); else onDone();
+  }
+  return (
+    <AuthShell>
+      <div style={{fontSize:18,fontWeight:800,color:T.text,marginBottom:6}}>Choose a new password</div>
+      <div style={{fontSize:13,color:T.muted,marginBottom:20}}>At least 8 characters.</div>
+      {error && <Banner kind="error">{error}</Banner>}
+      <PasswordField label="New password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="new-password"/>
+      <PasswordField label="Confirm new password" value={confirm} onChange={e=>setConfirm(e.target.value)} autoComplete="new-password"/>
+      <BigButton loading={loading} onClick={save}>Save password</BigButton>
+    </AuthShell>
+  );
+}
+
+// ─── Team & access (owner only) ───────────────────────────────────────────────
+function Toggle({ on, onClick, disabled }) {
+  return (
+    <button onClick={onClick} disabled={disabled} aria-pressed={on}
+      style={{width:46,height:28,borderRadius:14,border:"none",background:on?T.green:T.border2,position:"relative",cursor:disabled?"not-allowed":"pointer",flexShrink:0,opacity:disabled?0.6:1,transition:"background .15s"}}>
+      <span style={{position:"absolute",top:3,left:on?21:3,width:22,height:22,borderRadius:"50%",background:"#fff",transition:"left .15s"}}/>
+    </button>
+  );
+}
+
+function TeamSheet({ open, onClose, orgId, companies, myId }) {
+  const [members,setMembers] = useState([]);
+  const [access,setAccess]   = useState([]);
+  const [invites,setInvites] = useState([]);
+  const [email,setEmail]     = useState("");
+  const [picked,setPicked]   = useState([]);
+  const [busy,setBusy]       = useState(false);
+  const [err,setErr]         = useState(null);
+  const [msg,setMsg]         = useState(null);
+  const [confirmRemove,setConfirmRemove] = useState(null);
+  const [lastInvite,setLastInvite] = useState(null);
+  const [copied,setCopied] = useState(false);
+
+  const orgCompanies = companies.filter(c=>c.organisation_id===orgId);
+
+  async function refresh() {
+    const [m,a,i] = await Promise.all([
+      supabase.rpc("team_members"),
+      supabase.from("company_access").select("company_id,user_id"),
+      supabase.from("invitations").select("*").eq("organisation_id",orgId).is("claimed_at",null).order("created_at"),
+    ]);
+    if(m.error||a.error||i.error) setErr((m.error||a.error||i.error).message);
+    setMembers((m.data||[]).filter(x=>x.organisation_id===orgId&&x.user_id!==myId));
+    setAccess(a.data||[]);
+    setInvites(i.data||[]);
+  }
+  useEffect(()=>{ if(open&&orgId) { setErr(null); setMsg(null); setConfirmRemove(null); setLastInvite(null); refresh(); } },[open,orgId]);
+
+  const hasAccess = (uid,cid) => access.some(a=>a.user_id===uid&&a.company_id===cid);
+
+  async function toggle(uid,cid,on) {
+    setErr(null); setBusy(true);
+    const res = on
+      ? await supabase.from("company_access").insert({company_id:cid,user_id:uid})
+      : await supabase.from("company_access").delete().eq("company_id",cid).eq("user_id",uid);
+    if(res.error) setErr(res.error.message);
+    await refresh(); setBusy(false);
+  }
+
+  async function removeMember(uid) {
+    setErr(null); setBusy(true);
+    const ids = orgCompanies.map(c=>c.id);
+    if(ids.length) await supabase.from("company_access").delete().eq("user_id",uid).in("company_id",ids);
+    const res = await supabase.from("organisation_members").delete().eq("organisation_id",orgId).eq("user_id",uid);
+    if(res.error) setErr(res.error.message);
+    setConfirmRemove(null); await refresh(); setBusy(false);
+  }
+
+  async function sendInvite() {
+    const e = email.trim().toLowerCase();
+    setErr(null); setMsg(null);
+    if(!/^\S+@\S+\.\S+$/.test(e)) { setErr("Enter a valid email address"); return; }
+    if(!picked.length) { setErr("Tick at least one company they should see"); return; }
+    setBusy(true);
+    const res = await supabase.from("invitations").insert({organisation_id:orgId,email:e,company_ids:picked,invited_by:myId});
+    if(res.error) setErr(res.error.message);
+    else { setMsg(`Access saved for ${e}. Nothing has been emailed. Send them the message below so they can sign up.`); setLastInvite(e); setEmail(""); setPicked([]); }
+    await refresh(); setBusy(false);
+  }
+
+  async function revokeInvite(id) {
+    setBusy(true);
+    const res = await supabase.from("invitations").delete().eq("id",id);
+    if(res.error) setErr(res.error.message);
+    await refresh(); setBusy(false);
+  }
+
+  const label = {fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,marginTop:6};
+  const nameOf = id => companies.find(c=>c.id===id)?.name||"Unknown company";
+  const inviteText = e => `Hi, I've given you access to PropCompliance.\n\n1. Open ${window.location.origin}\n2. Tap "Sign up"\n3. Use this exact email: ${e}\n4. Choose a password (8+ characters) and leave "Portfolio name" blank\n5. Click the confirmation link in the email you get, then log in.`;
+  function copyInvite(e) { navigator.clipboard.writeText(inviteText(e)).then(()=>{ setCopied(true); setTimeout(()=>setCopied(false),2000); }); }
+
+  return (
+    <Sheet open={open} onClose={onClose} title="Team & access">
+      {err && <Banner kind="error">{err}</Banner>}
+      {msg && <Banner kind="ok">{msg}</Banner>}
+      {lastInvite && (
+        <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:14,padding:14,marginBottom:14}}>
+          <div style={{fontSize:12,fontWeight:700,color:T.amber,marginBottom:6}}>Send this to them yourself (e.g. WhatsApp)</div>
+          <div style={{fontSize:12,color:T.text,whiteSpace:"pre-wrap",lineHeight:1.6,marginBottom:10}}>{inviteText(lastInvite)}</div>
+          <Btn label={copied?"✓ Copied!":"Copy message"} onClick={()=>copyInvite(lastInvite)} variant={copied?"ghost":"primary"} small/>
+        </div>
+      )}
+
+      <div style={label}>People with access</div>
+      {members.length===0 && <div style={{fontSize:13,color:T.muted,marginBottom:16,lineHeight:1.5}}>Nobody else yet. Give someone access below. You (the owner) always see every company.</div>}
+      {members.map(m=>(
+        <div key={m.user_id} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:14,padding:"14px",marginBottom:10}}>
+          <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10,wordBreak:"break-all"}}>{m.email}</div>
+          {orgCompanies.length===0 && <div style={{fontSize:12,color:T.muted}}>No companies yet.</div>}
+          {orgCompanies.map(c=>(
+            <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"7px 0"}}>
+              <span style={{fontSize:13,color:T.text}}>{c.name}</span>
+              <Toggle on={hasAccess(m.user_id,c.id)} disabled={busy} onClick={()=>toggle(m.user_id,c.id,!hasAccess(m.user_id,c.id))}/>
+            </div>
+          ))}
+          <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
+            {confirmRemove===m.user_id
+              ? <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{fontSize:12,color:T.red,flex:1}}>Remove this person completely?</span>
+                  <Btn label="Cancel" variant="ghost" small onClick={()=>setConfirmRemove(null)}/>
+                  <Btn label="Yes, remove" variant="danger" small disabled={busy} onClick={()=>removeMember(m.user_id)}/>
+                </div>
+              : <Btn label="Remove person" variant="danger" small onClick={()=>setConfirmRemove(m.user_id)}/>}
+          </div>
+        </div>
+      ))}
+
+      {invites.length>0 && <>
+        <div style={{...label,marginTop:18}}>Waiting for them to sign up</div>
+        {invites.map(inv=>(
+          <div key={inv.id} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:14,padding:"12px 14px",marginBottom:10}}>
+            <div style={{fontSize:13,fontWeight:700,color:T.text,wordBreak:"break-all"}}>{inv.email}</div>
+            <div style={{fontSize:12,color:T.muted,margin:"4px 0 10px",lineHeight:1.5}}>Will see: {inv.company_ids.map(nameOf).join(", ")}</div>
+            <Btn label="Cancel access" variant="danger" small disabled={busy} onClick={()=>revokeInvite(inv.id)}/>
+          </div>
+        ))}
+      </>}
+
+      <div style={{...label,marginTop:18}}>Give someone access</div>
+      <Input label="Their email" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="name@example.com"/>
+      <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Companies they can see</div>
+      {orgCompanies.map(c=>(
+        <div key={c.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"7px 0"}}>
+          <span style={{fontSize:13,color:T.text}}>{c.name}</span>
+          <Toggle on={picked.includes(c.id)} onClick={()=>setPicked(p=>p.includes(c.id)?p.filter(x=>x!==c.id):[...p,c.id])}/>
+        </div>
+      ))}
+      <div style={{display:"flex",gap:10,marginTop:14}}>
+        <Btn label="Close" variant="ghost" onClick={onClose}/>
+        <button onClick={sendInvite} disabled={busy} style={{flex:1,background:T.accent,color:"#fff",border:"none",borderRadius:10,padding:13,fontSize:14,fontWeight:700,cursor:busy?"not-allowed":"pointer",opacity:busy?0.6:1}}>Save access</button>
+      </div>
+      <div style={{fontSize:11,color:T.muted,marginTop:12,lineHeight:1.5}}>The app does not send any email. After you save, you get a ready-made message to send them yourself. They then sign up with the same email address.</div>
+    </Sheet>
   );
 }
 
@@ -244,12 +465,15 @@ export default function App() {
   const [sheetTarget,setSheetTarget] = useState(null);
   const [form,setForm]         = useState({});
   const [copyDone,setCopyDone] = useState(false);
-  const [inviteCopied,setInviteCopied] = useState(false);
+  const [recovering,setRecovering] = useState(false);
+  const [isOwner,setIsOwner]   = useState(false);
+  const [loadError,setLoadError] = useState(null);
+  const [teamOpen,setTeamOpen] = useState(false);
 
   // Auth listener
   useEffect(()=>{
     supabase.auth.getSession().then(({data:{session}})=>{ setSession(session); setAuthReady(true); });
-    const { data:{ subscription } } = supabase.auth.onAuthStateChange((_,session)=>setSession(session));
+    const { data:{ subscription } } = supabase.auth.onAuthStateChange((event,session)=>{ if(event==="PASSWORD_RECOVERY") setRecovering(true); setSession(session); });
     return ()=>subscription.unsubscribe();
   },[]);
 
@@ -259,16 +483,18 @@ export default function App() {
   },[session]);
 
   async function loadAll() {
-    setLoading(true);
-    // Get org
-    const { data:memberData } = await supabase.from("organisation_members").select("organisation_id").eq("user_id",session.user.id).single();
-    if(!memberData) { setLoading(false); return; }
-    const oid = memberData.organisation_id;
-    setOrgId(oid);
-    // Load companies
-    const { data:cos } = await supabase.from("companies").select("*").eq("organisation_id",oid).order("created_at");
+    setLoading(true); setLoadError(null);
+    // Turn any pending email invitation for this user into access (safe to call every time)
+    await supabase.rpc("claim_invitations");
+    const { data:mems, error:memErr } = await supabase.from("organisation_members").select("organisation_id,role").eq("user_id",session.user.id);
+    if(memErr) { setLoadError(memErr.message); setLoading(false); return; }
+    const ownerMem = (mems||[]).find(m=>m.role==="owner");
+    setOrgId(ownerMem?.organisation_id||null);
+    setIsOwner(!!ownerMem);
+    // The database only returns the companies this person is allowed to see
+    const { data:cos, error:coErr } = await supabase.from("companies").select("*").order("created_at");
+    if(coErr) { setLoadError(coErr.message); setLoading(false); return; }
     setCompanies(cos||[]);
-    // Load properties
     const coIds = (cos||[]).map(c=>c.id);
     if(coIds.length) {
       const { data:props } = await supabase.from("properties").select("*").in("company_id",coIds).order("created_at");
@@ -281,8 +507,8 @@ export default function App() {
         ]);
         setChecks(chks||[]);
         setFinancials(fins||[]);
-      }
-    }
+      } else { setChecks([]); setFinancials([]); }
+    } else { setProperties([]); setChecks([]); setFinancials([]); }
     setLoading(false);
   }
 
@@ -310,7 +536,8 @@ export default function App() {
   // ── CRUD ──
   async function handleAddCompany() {
     if(!form.name||!orgId) return;
-    const { data } = await supabase.from("companies").insert({name:form.name,organisation_id:orgId}).select().single();
+    const { data, error } = await supabase.from("companies").insert({name:form.name.trim(),organisation_id:orgId}).select().single();
+    if(error) setLoadError("Couldn't add company: "+error.message);
     if(data) setCompanies(prev=>[...prev,data]);
     closeSheet();
   }
@@ -400,14 +627,21 @@ export default function App() {
     }).sort((a,b)=>getDaysUntil(a.due)-getDaysUntil(b.due));
   }
 
-  function copyInviteCode() {
-    navigator.clipboard.writeText(orgId||"").then(()=>{ setInviteCopied(true); setTimeout(()=>setInviteCopied(false),2000); });
+  function downloadBackup() {
+    const payload = { app:"PropCompliance", exported_at:new Date().toISOString(), exported_by:session.user.email, companies, properties, checks, financials };
+    const blob = new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `propcompliance-backup-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1500);
   }
   function copyWA(text) { navigator.clipboard.writeText(text).then(()=>{ setCopyDone(true); setTimeout(()=>setCopyDone(false),2000); }); }
 
   // ── Derived ──
   if(!authReady) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:T.bg}}><div style={{width:32,height:32,border:`3px solid ${T.border2}`,borderTopColor:T.accent,borderRadius:"50%"}}/></div>;
-  if(!session)   return <AuthScreen onAuth={()=>{}}/>;
+  if(!session)   return <AuthScreen/>;
+  if(recovering) return <ResetPasswordScreen onDone={()=>setRecovering(false)}/>;
 
   const allChecks  = getAllChecks();
   const alerts     = allChecks.filter(ch=>getDaysUntil(ch.due)<=90);
@@ -462,14 +696,16 @@ export default function App() {
             </div>
           )}
 
-          <Section title="Companies" action={<Btn label="+ Add" variant="ghost" small onClick={()=>openSheet("addCompany")}/>}/>
+          <Section title="Companies" action={isOwner?<Btn label="+ Add" variant="ghost" small onClick={()=>openSheet("addCompany")}/>:null}/>
+          {loadError&&<Banner kind="error">{loadError}</Banner>}
 
           {companies.length===0&&!loading&&(
             <div style={{textAlign:"center",padding:"48px 20px"}}>
               <div style={{fontSize:40,marginBottom:12}}>🏠</div>
               <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>No companies yet</div>
-              <div style={{fontSize:13,color:T.muted,marginBottom:20}}>Add your first limited company to get started</div>
-              <Btn label="Add Company" onClick={()=>openSheet("addCompany")}/>
+              {isOwner
+                ?<><div style={{fontSize:13,color:T.muted,marginBottom:20}}>Add your first limited company to get started</div><Btn label="Add Company" onClick={()=>openSheet("addCompany")}/></>
+                :<div style={{fontSize:13,color:T.muted,lineHeight:1.5}}>No companies have been shared with you yet. Ask the portfolio owner to give you access, then pull down to refresh or log in again.</div>}
             </div>
           )}
 
@@ -506,7 +742,7 @@ export default function App() {
           {alerts.filter(ch=>getDaysUntil(ch.due)<=30).length>0&&<>
             <Section title="Due within 30 days" action={<Btn label="See all" variant="ghost" small onClick={()=>setTab("alerts")}/>}/>
             {allChecks.filter(ch=>getDaysUntil(ch.due)<=30).slice(0,3).map(ch=>(
-              <CheckRow key={ch.id} check={ch} subtitle={`${ch.property_address?.split(",")[0]} · ${ch.company_name}`} onEdit={()=>{}}/>
+              <CheckRow key={ch.id} check={ch} subtitle={`${ch.property_address?.split(",")[0]} · ${ch.company_name}`} onEdit={()=>openSheet("editCheck",ch)}/>
             ))}
           </>}
         </>}
@@ -515,7 +751,7 @@ export default function App() {
         {showCompany&&company&&<>
           <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
             <Btn label="+ Add Property" onClick={()=>openSheet("addProperty",{companyId:company.id})}/>
-            <Btn label="Delete Company" variant="danger" small onClick={()=>openSheet("deleteCompany",company)}/>
+            {isOwner&&<Btn label="Delete Company" variant="danger" small onClick={()=>openSheet("deleteCompany",company)}/>}
           </div>
           {properties.filter(p=>p.company_id===company.id).length===0&&(
             <div style={{textAlign:"center",padding:"40px 20px",color:T.muted,fontSize:13}}>No properties yet. Add one above.</div>
@@ -627,7 +863,7 @@ export default function App() {
               <div style={{fontSize:13,color:T.muted}}>Nothing due in the next 90 days</div>
             </div>
             :alerts.map(ch=>(
-              <CheckRow key={ch.id} check={ch} subtitle={`${ch.property_address?.split(",")[0]} · ${ch.company_name}`} onEdit={()=>{}}/>
+              <CheckRow key={ch.id} check={ch} subtitle={`${ch.property_address?.split(",")[0]} · ${ch.company_name}`} onEdit={()=>openSheet("editCheck",ch)}/>
             ))
           }
         </>}
@@ -640,13 +876,22 @@ export default function App() {
             <Btn label="Sign out" variant="ghost" onClick={()=>supabase.auth.signOut()}/>
           </Card>
 
+          {isOwner&&(
+            <Card>
+              <div style={{fontSize:14,fontWeight:600,color:T.text,marginBottom:4}}>Team & access</div>
+              <div style={{fontSize:12,color:T.muted,marginBottom:12,lineHeight:1.5}}>
+                Give people access and choose exactly which companies each person can see. You can switch access on or off at any time.
+              </div>
+              <Btn label="Manage team & access" onClick={()=>setTeamOpen(true)}/>
+            </Card>
+          )}
+
           <Card>
-            <div style={{fontSize:14,fontWeight:600,color:T.text,marginBottom:4}}>Invite your partner</div>
+            <div style={{fontSize:14,fontWeight:600,color:T.text,marginBottom:4}}>Back up your data</div>
             <div style={{fontSize:12,color:T.muted,marginBottom:12,lineHeight:1.5}}>
-              Share this code with Ben. He uses it on the "Join" tab when creating his account.
+              Downloads a file with everything you can see here (companies, properties, checks, financials). Do this now and then, and always before big changes.
             </div>
-            <div style={{background:T.bg,border:`1px solid ${T.border}`,borderRadius:8,padding:"10px 12px",fontSize:12,color:T.accent,fontFamily:"monospace",marginBottom:12,wordBreak:"break-all"}}>{orgId||"Loading…"}</div>
-            <Btn label={inviteCopied?"✓ Copied!":"Copy Invite Code"} onClick={copyInviteCode} variant={inviteCopied?"ghost":"primary"}/>
+            <Btn label="Download backup" onClick={downloadBackup}/>
           </Card>
 
           <Card>
@@ -749,6 +994,8 @@ export default function App() {
         </>}
         <div style={{display:"flex",gap:10,marginTop:8}}><Btn label="Cancel" variant="ghost" onClick={closeSheet}/><button onClick={handleSaveFinancials} style={{flex:1,background:T.accent,color:"#fff",border:"none",borderRadius:10,padding:13,fontSize:14,fontWeight:700,cursor:"pointer"}}>Save</button></div>
       </Sheet>
+
+      {isOwner&&<TeamSheet open={teamOpen} onClose={()=>setTeamOpen(false)} orgId={orgId} companies={companies} myId={session.user.id}/>}
 
     </div>
   );
