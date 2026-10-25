@@ -31,6 +31,8 @@ const FIN_FIELDS     = [
   { key:"interest_rate",    label:"Interest Rate (%)",     type:"number" },
   { key:"mortgage_renewal", label:"Mortgage Renewal Date", type:"date"   },
 ];
+const DEPOSIT_SCHEMES = ["DPS","TDS","MyDeposits","Other / not protected yet"];
+const RENT_FREQS      = [["monthly","Monthly"],["weekly","Weekly"],["quarterly","Quarterly"],["annually","Annually"]];
 const LEASE_FIELDS = [
   { key:"lease_years_remaining", label:"Years Remaining",      type:"number" },
   { key:"lease_ground_rent",     label:"Ground Rent (£/yr)",   type:"number" },
@@ -46,6 +48,8 @@ const STATUS_COLOR = { overdue:T.red, urgent:T.orange, warning:T.amber, ok:T.gre
 function fmtDate(d) { if(!d) return "—"; return new Date(d).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}); }
 function formatDue(d) { const days=getDaysUntil(d),date=fmtDate(d); if(days<0) return `${Math.abs(days)}d overdue`; if(days===0) return "Due today"; if(days<=90) return `${days}d · ${date}`; return date; }
 function fmtGBP(n) { if(n==null||n==="") return "—"; return "£"+Number(n).toLocaleString("en-GB"); }
+function fixUrl(u) { const t=(u||"").trim(); if(!t) return ""; return /^https?:\/\//i.test(t)?t:"https://"+t; }
+function isCurrentTenancy(t) { return !t.end_date || getDaysUntil(t.end_date)>=0; }
 function newId() { return Math.random().toString(36).slice(2,9); }
 
 function useDevice() {
@@ -102,6 +106,14 @@ function Input({ label, ...props }) {
     </div>
   );
 }
+function TextArea({ label, ...props }) {
+  return (
+    <div style={{marginBottom:14}}>
+      {label&&<div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>{label}</div>}
+      <textarea rows={3} {...props} style={{width:"100%",background:T.surface,border:`1px solid ${T.border2}`,borderRadius:10,padding:"11px 12px",color:T.text,fontSize:15,outline:"none",boxSizing:"border-box",fontFamily:"inherit",resize:"vertical"}}/>
+    </div>
+  );
+}
 function Sheet({ open, onClose, title, children }) {
   if(!open) return null;
   return (
@@ -120,7 +132,7 @@ function CheckRow({ check, subtitle, onEdit }) {
     <div onClick={onEdit} style={{display:"flex",alignItems:"center",gap:12,padding:"13px 14px",borderRadius:12,marginBottom:6,background:T.surface,border:`1px solid ${T.border}`,cursor:"pointer",borderLeft:`3px solid ${s==="ok"?T.border:c}`}}>
       <div style={{width:8,height:8,borderRadius:"50%",background:c,flexShrink:0,boxShadow:`0 0 8px ${c}`}}/>
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:14,fontWeight:700,color:T.text}}>{check.type}</div>
+        <div style={{fontSize:14,fontWeight:700,color:T.text}}>{check.type}{check.doc_link&&<span title="Has a document link" style={{marginLeft:6,fontSize:12}}>📎</span>}{check.notes&&<span title="Has notes" style={{marginLeft:4,fontSize:12}}>📝</span>}</div>
         {subtitle&&<div style={{fontSize:11,color:T.muted,marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{subtitle}</div>}
       </div>
       <div style={{fontSize:12,fontWeight:600,color:s==="ok"?T.muted:c,flexShrink:0}}>{formatDue(check.due)}</div>
@@ -300,6 +312,40 @@ function ResetPasswordScreen({ onDone }) {
   );
 }
 
+// ─── Account (change password) ────────────────────────────────────────────────
+function AccountSheet({ open, onClose, email }) {
+  const [password,setPassword] = useState("");
+  const [confirm,setConfirm]   = useState("");
+  const [loading,setLoading]   = useState(false);
+  const [error,setError]       = useState(null);
+  const [done,setDone]         = useState(false);
+  useEffect(()=>{ if(open) { setPassword(""); setConfirm(""); setError(null); setDone(false); } },[open]);
+  async function save() {
+    setError(null); setDone(false);
+    if(password.length<8) { setError("Password must be at least 8 characters"); return; }
+    if(password!==confirm) { setError("The two passwords don't match"); return; }
+    setLoading(true);
+    const { error } = await supabase.auth.updateUser({ password });
+    setLoading(false);
+    if(error) setError(error.message); else { setDone(true); setPassword(""); setConfirm(""); }
+  }
+  return (
+    <Sheet open={open} onClose={onClose} title="Your account">
+      <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Email</div>
+      <div style={{fontSize:14,color:T.text,marginBottom:20,wordBreak:"break-all"}}>{email}</div>
+      <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Change password</div>
+      {error && <Banner kind="error">{error}</Banner>}
+      {done  && <Banner kind="ok">Password changed. Use the new one next time you log in.</Banner>}
+      <PasswordField label="New password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="new-password"/>
+      <PasswordField label="Confirm new password" value={confirm} onChange={e=>setConfirm(e.target.value)} autoComplete="new-password"/>
+      <div style={{display:"flex",gap:10,marginTop:8}}>
+        <Btn label="Close" variant="ghost" onClick={onClose}/>
+        <button onClick={save} disabled={loading} style={{flex:1,background:T.accent,color:"#fff",border:"none",borderRadius:10,padding:13,fontSize:14,fontWeight:700,cursor:loading?"not-allowed":"pointer",opacity:loading?0.6:1}}>{loading?"Saving…":"Save new password"}</button>
+      </div>
+    </Sheet>
+  );
+}
+
 // ─── Team & access (owner only) ───────────────────────────────────────────────
 function Toggle({ on, onClick, disabled }) {
   return (
@@ -457,6 +503,10 @@ export default function App() {
   const [properties,setProperties] = useState([]);
   const [checks,setChecks]     = useState([]);
   const [financials,setFinancials] = useState([]);
+  const [tenancies,setTenancies] = useState([]);
+  const [search,setSearch]     = useState("");
+  const [sheetError,setSheetError] = useState(null);
+  const [accountOpen,setAccountOpen] = useState(false);
   const [loading,setLoading]   = useState(false);
   const [tab,setTab]           = useState("home");
   const [stack,setStack]       = useState([]);
@@ -501,14 +551,16 @@ export default function App() {
       setProperties(props||[]);
       const propIds = (props||[]).map(p=>p.id);
       if(propIds.length) {
-        const [{ data:chks },{ data:fins }] = await Promise.all([
+        const [{ data:chks },{ data:fins },{ data:tens }] = await Promise.all([
           supabase.from("checks").select("*").in("property_id",propIds).order("due"),
           supabase.from("financials").select("*").in("property_id",propIds),
+          supabase.from("tenancies").select("*").in("property_id",propIds).order("start_date",{ascending:false}),
         ]);
         setChecks(chks||[]);
         setFinancials(fins||[]);
-      } else { setChecks([]); setFinancials([]); }
-    } else { setProperties([]); setChecks([]); setFinancials([]); }
+        setTenancies(tens||[]);
+      } else { setChecks([]); setFinancials([]); setTenancies([]); }
+    } else { setProperties([]); setChecks([]); setFinancials([]); setTenancies([]); }
     setLoading(false);
   }
 
@@ -520,18 +572,21 @@ export default function App() {
   const property       = propertyFrame ? properties.find(p=>p.id===propertyFrame.id) : null;
   const fin            = financials.find(f=>f.property_id===property?.id)||{};
   const propChecks     = checks.filter(ch=>ch.property_id===property?.id);
+  const propTenancies  = tenancies.filter(t=>t.property_id===property?.id);
   function pushStack(frame) { setStack(prev=>[...prev,frame]); }
   function popStack()  { setStack(prev=>prev.slice(0,-1)); }
   function resetStack(){ setStack([]); }
 
   function openSheet(name,target=null) {
-    setSheet(name); setSheetTarget(target);
-    if(name==="editCheck"&&target)   setForm({type:target.type,due:target.due||""});
+    setSheet(name); setSheetTarget(target); setSheetError(null);
+    if(name==="editCheck"&&target)   setForm({type:target.type,due:target.due||"",doc_link:target.doc_link||"",notes:target.notes||""});
+    else if(name==="addTenancy")     setForm({rent_frequency:"monthly"});
+    else if(name==="editTenancy"&&target) setForm({...target});
     else if(name==="editFinancials"&&target) setForm({...target,leasehold:!!target.is_leasehold});
     else if(name==="editProperty"&&target) setForm({address:target.address,type:target.type,tenants:target.tenants,purchase_date:target.purchase_date||"",notes:target.notes||""});
     else setForm({});
   }
-  function closeSheet() { setSheet(null); setSheetTarget(null); setForm({}); }
+  function closeSheet() { setSheet(null); setSheetTarget(null); setForm({}); setSheetError(null); }
 
   // ── CRUD ──
   async function handleAddCompany() {
@@ -567,17 +622,20 @@ export default function App() {
     setProperties(prev=>prev.filter(p=>p.id!==sheetTarget.id));
     setChecks(prev=>prev.filter(ch=>ch.property_id!==sheetTarget.id));
     setFinancials(prev=>prev.filter(f=>f.property_id!==sheetTarget.id));
+    setTenancies(prev=>prev.filter(t=>t.property_id!==sheetTarget.id));
     popStack(); closeSheet();
   }
   async function handleAddCheck() {
     if(!form.type||!form.due||!sheetTarget) return;
-    const { data } = await supabase.from("checks").insert({property_id:sheetTarget.propertyId,type:form.type,due:form.due}).select().single();
+    const { data, error } = await supabase.from("checks").insert({property_id:sheetTarget.propertyId,type:form.type,due:form.due,doc_link:fixUrl(form.doc_link)||null,notes:(form.notes||"").trim()||null}).select().single();
+    if(error) { setSheetError("Couldn't save: "+error.message); return; }
     if(data) setChecks(prev=>[...prev,data]);
     closeSheet();
   }
   async function handleEditCheck() {
     if(!form.type||!form.due||!sheetTarget) return;
-    const { data } = await supabase.from("checks").update({type:form.type,due:form.due}).eq("id",sheetTarget.id).select().single();
+    const { data, error } = await supabase.from("checks").update({type:form.type,due:form.due,doc_link:fixUrl(form.doc_link)||null,notes:(form.notes||"").trim()||null}).eq("id",sheetTarget.id).select().single();
+    if(error) { setSheetError("Couldn't save: "+error.message); return; }
     if(data) setChecks(prev=>prev.map(ch=>ch.id===sheetTarget.id?data:ch));
     closeSheet();
   }
@@ -619,6 +677,43 @@ export default function App() {
     closeSheet();
   }
 
+  async function handleSaveTenancy() {
+    if(!sheetTarget) return;
+    if(!(form.tenant_name||"").trim()) { setSheetError("Enter the tenant's name"); return; }
+    const payload = {
+      tenant_name:    form.tenant_name.trim(),
+      tenant_phone:   (form.tenant_phone||"").trim()||null,
+      tenant_email:   (form.tenant_email||"").trim()||null,
+      start_date:     form.start_date||null,
+      end_date:       form.end_date||null,
+      rent_amount:    form.rent_amount===""||form.rent_amount==null ? null : parseFloat(form.rent_amount),
+      rent_frequency: form.rent_frequency||"monthly",
+      deposit_amount: form.deposit_amount===""||form.deposit_amount==null ? null : parseFloat(form.deposit_amount),
+      deposit_scheme: form.deposit_scheme||null,
+      deposit_ref:    (form.deposit_ref||"").trim()||null,
+      break_clause:   form.break_clause||null,
+      doc_link:       fixUrl(form.doc_link)||null,
+      notes:          (form.notes||"").trim()||null,
+    };
+    if(sheet==="addTenancy") {
+      const { data, error } = await supabase.from("tenancies").insert({...payload,property_id:sheetTarget.propertyId}).select().single();
+      if(error) { setSheetError("Couldn't save: "+error.message); return; }
+      if(data) setTenancies(prev=>[data,...prev]);
+    } else {
+      const { data, error } = await supabase.from("tenancies").update(payload).eq("id",sheetTarget.id).select().single();
+      if(error) { setSheetError("Couldn't save: "+error.message); return; }
+      if(data) setTenancies(prev=>prev.map(t=>t.id===sheetTarget.id?data:t));
+    }
+    closeSheet();
+  }
+  async function handleDeleteTenancy() {
+    if(!sheetTarget) return;
+    const { error } = await supabase.from("tenancies").delete().eq("id",sheetTarget.id);
+    if(error) { setSheetError("Couldn't delete: "+error.message); return; }
+    setTenancies(prev=>prev.filter(t=>t.id!==sheetTarget.id));
+    closeSheet();
+  }
+
   function getAllChecks() {
     return checks.map(ch=>{
       const prop = properties.find(p=>p.id===ch.property_id);
@@ -627,8 +722,22 @@ export default function App() {
     }).sort((a,b)=>getDaysUntil(a.due)-getDaysUntil(b.due));
   }
 
+  // Mortgage renewals appear alongside compliance checks in Alerts / Home / WhatsApp
+  function getMortgageItems() {
+    return financials.filter(f=>f.mortgage_renewal).map(f=>{
+      const prop = properties.find(p=>p.id===f.property_id);
+      const co   = prop ? companies.find(c=>c.id===prop.company_id) : null;
+      return { id:"mort-"+f.id, type:"Mortgage renewal", due:f.mortgage_renewal, property_id:f.property_id, property_address:prop?.address, company_name:co?.name, isMortgage:true };
+    });
+  }
+  function openItem(ch) {
+    if(ch.isMortgage) { const f=financials.find(x=>x.property_id===ch.property_id)||{}; openSheet("editFinancials",{...f,propertyId:ch.property_id}); }
+    else openSheet("editCheck",ch);
+  }
+  function goToProperty(p) { setTab("home"); setSearch(""); setStack([{type:"company",id:p.company_id},{type:"property",id:p.id}]); setPropTab("compliance"); }
+
   function downloadBackup() {
-    const payload = { app:"PropCompliance", exported_at:new Date().toISOString(), exported_by:session.user.email, companies, properties, checks, financials };
+    const payload = { app:"PropCompliance", exported_at:new Date().toISOString(), exported_by:session.user.email, companies, properties, checks, financials, tenancies };
     const blob = new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -644,7 +753,14 @@ export default function App() {
   if(recovering) return <ResetPasswordScreen onDone={()=>setRecovering(false)}/>;
 
   const allChecks  = getAllChecks();
-  const alerts     = allChecks.filter(ch=>getDaysUntil(ch.due)<=90);
+  const allItems   = [...allChecks, ...getMortgageItems()].sort((a,b)=>getDaysUntil(a.due)-getDaysUntil(b.due));
+  const alerts     = allItems.filter(ch=>getDaysUntil(ch.due)<=90);
+  const q          = search.trim().toLowerCase();
+  const searchResults = q ? properties.filter(p=>{
+    const co = companies.find(c=>c.id===p.company_id);
+    const tn = tenancies.filter(t=>t.property_id===p.id).map(t=>t.tenant_name||"").join(" ");
+    return [p.address,p.type,p.notes,co?.name,tn].some(v=>(v||"").toLowerCase().includes(q));
+  }) : [];
   const equity     = (fin.current_value&&fin.mortgage_balance) ? fin.current_value-fin.mortgage_balance : null;
   const gain       = (fin.current_value&&fin.purchase_price)   ? fin.current_value-fin.purchase_price   : null;
   const mortDays   = fin.mortgage_renewal ? getDaysUntil(fin.mortgage_renewal) : null;
@@ -653,7 +769,7 @@ export default function App() {
     acc.value+=f.current_value||0; acc.mortgage+=f.mortgage_balance||0; acc.payment+=f.monthly_payment||0; acc.count++;
     return acc;
   },{value:0,mortgage:0,payment:0,count:0});
-  const waText = buildWAText(allChecks);
+  const waText = buildWAText(allItems);
   const maxW   = isIPad ? 768 : 480;
 
   const showHome     = tab==="home"&&!currentFrame;
@@ -696,6 +812,30 @@ export default function App() {
             </div>
           )}
 
+          {properties.length>0&&(
+            <div style={{position:"relative",marginBottom:18}}>
+              <input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search properties, companies, tenants…"
+                style={{...FIELD_STYLE,paddingLeft:38}}/>
+              <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:15,color:T.muted,pointerEvents:"none"}}>🔍</span>
+            </div>
+          )}
+          {q&&<>
+            <Section title={`${searchResults.length} result${searchResults.length===1?"":"s"}`}/>
+            {searchResults.length===0&&<div style={{textAlign:"center",padding:"30px 20px",color:T.muted,fontSize:13}}>Nothing matches "{search.trim()}".</div>}
+            {searchResults.map(p=>{
+              const co=companies.find(c=>c.id===p.company_id);
+              const cur=tenancies.filter(t=>t.property_id===p.id&&isCurrentTenancy(t));
+              return (
+                <Card key={p.id} onClick={()=>goToProperty(p)}>
+                  <div style={{fontSize:15,fontWeight:700,color:T.text}}>{p.address.split(",")[0]}</div>
+                  <div style={{fontSize:12,color:T.muted,marginTop:2}}>{p.address.split(",").slice(1).join(",").trim()}</div>
+                  <div style={{fontSize:12,color:T.muted,marginTop:6}}>{co?.name}{cur.length>0&&` · ${cur.map(t=>t.tenant_name).filter(Boolean).join(", ")}`}</div>
+                </Card>
+              );
+            })}
+          </>}
+
+          {!q&&<>
           <Section title="Companies" action={isOwner?<Btn label="+ Add" variant="ghost" small onClick={()=>openSheet("addCompany")}/>:null}/>
           {loadError&&<Banner kind="error">{loadError}</Banner>}
 
@@ -741,9 +881,10 @@ export default function App() {
 
           {alerts.filter(ch=>getDaysUntil(ch.due)<=30).length>0&&<>
             <Section title="Due within 30 days" action={<Btn label="See all" variant="ghost" small onClick={()=>setTab("alerts")}/>}/>
-            {allChecks.filter(ch=>getDaysUntil(ch.due)<=30).slice(0,3).map(ch=>(
-              <CheckRow key={ch.id} check={ch} subtitle={`${ch.property_address?.split(",")[0]} · ${ch.company_name}`} onEdit={()=>openSheet("editCheck",ch)}/>
+            {allItems.filter(ch=>getDaysUntil(ch.due)<=30).slice(0,3).map(ch=>(
+              <CheckRow key={ch.id} check={ch} subtitle={`${ch.property_address?.split(",")[0]} · ${ch.company_name}`} onEdit={()=>openItem(ch)}/>
             ))}
+          </>}
           </>}
         </>}
 
@@ -802,7 +943,7 @@ export default function App() {
 
           {!isIPad&&(
             <div style={{display:"flex",background:T.surface,borderRadius:12,padding:4,marginBottom:16,gap:3}}>
-              {[["compliance","Compliance"],["financials","Financials"]].map(([t,l])=>(
+              {[["compliance","Compliance"],["financials","Financials"],["tenants","Tenants"]].map(([t,l])=>(
                 <button key={t} style={{flex:1,background:propTab===t?T.surface2:"transparent",border:propTab===t?`1px solid ${T.border2}`:"1px solid transparent",color:propTab===t?T.text:T.muted,padding:"9px",fontSize:13,fontWeight:700,borderRadius:9,cursor:"pointer"}} onClick={()=>setPropTab(t)}>{l}</button>
               ))}
             </div>
@@ -851,6 +992,37 @@ export default function App() {
                 </>
               }
             </div>}
+
+            {(propTab==="tenants"||isIPad)&&<div style={isIPad?{gridColumn:"1 / span 2"}:{}}>
+              <Section title="Tenants" action={<Btn label="+ Add" variant="ghost" small onClick={()=>openSheet("addTenancy",{propertyId:property.id})}/>}/>
+              {propTenancies.length===0&&<div style={{textAlign:"center",padding:"24px",color:T.muted,fontSize:13}}>No tenants recorded yet.</div>}
+              {propTenancies.map(t=>{
+                const cur=isCurrentTenancy(t);
+                const endDays=t.end_date?getDaysUntil(t.end_date):null;
+                return (
+                  <Card key={t.id} onClick={()=>openSheet("editTenancy",t)} style={{opacity:cur?1:0.65}}>
+                    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:8}}>
+                      <div style={{fontSize:15,fontWeight:700,color:T.text,minWidth:0,wordBreak:"break-word"}}>{t.tenant_name||"Unnamed tenant"}</div>
+                      <Pill label={cur?"Current":"Ended"} color={cur?T.green:T.muted}/>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                      <div><div style={{fontSize:10,color:T.muted}}>Rent</div><div style={{fontSize:13,fontWeight:700,color:T.text}}>{t.rent_amount!=null?`${fmtGBP(t.rent_amount)} ${t.rent_frequency||"monthly"}`:"—"}</div></div>
+                      <div><div style={{fontSize:10,color:T.muted}}>Deposit</div><div style={{fontSize:13,fontWeight:700,color:T.text}}>{t.deposit_amount!=null?fmtGBP(t.deposit_amount):"—"}{t.deposit_scheme?` · ${t.deposit_scheme.split(" ")[0]}`:""}</div></div>
+                      <div><div style={{fontSize:10,color:T.muted}}>Started</div><div style={{fontSize:13,fontWeight:700,color:T.text}}>{fmtDate(t.start_date)}</div></div>
+                      <div><div style={{fontSize:10,color:T.muted}}>Ends</div><div style={{fontSize:13,fontWeight:700,color:endDays!==null&&endDays>=0&&endDays<=90?STATUS_COLOR[getStatus(endDays)]:T.text}}>{t.end_date?fmtDate(t.end_date):"Rolling / not set"}</div></div>
+                    </div>
+                    {(t.tenant_phone||t.tenant_email||t.doc_link)&&(
+                      <div style={{display:"flex",gap:14,flexWrap:"wrap",marginTop:12,paddingTop:10,borderTop:`1px solid ${T.border}`}} onClick={e=>e.stopPropagation()}>
+                        {t.tenant_phone&&<a href={`tel:${t.tenant_phone.replace(/\s+/g,"")}`} style={{fontSize:13,fontWeight:600,color:T.accent,textDecoration:"none"}}>📞 {t.tenant_phone}</a>}
+                        {t.tenant_email&&<a href={`mailto:${t.tenant_email}`} style={{fontSize:13,fontWeight:600,color:T.accent,textDecoration:"none",wordBreak:"break-all"}}>✉️ {t.tenant_email}</a>}
+                        {t.doc_link&&<a href={fixUrl(t.doc_link)} target="_blank" rel="noopener noreferrer" style={{fontSize:13,fontWeight:600,color:T.accent,textDecoration:"none"}}>📎 Tenancy document</a>}
+                      </div>
+                    )}
+                    {t.notes&&<div style={{fontSize:12,color:T.muted,marginTop:10,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{t.notes}</div>}
+                  </Card>
+                );
+              })}
+            </div>}
           </div>
         </>}
 
@@ -860,10 +1032,10 @@ export default function App() {
             ?<div style={{textAlign:"center",padding:"60px 20px"}}>
               <div style={{fontSize:40,marginBottom:12}}>✅</div>
               <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6}}>All clear</div>
-              <div style={{fontSize:13,color:T.muted}}>Nothing due in the next 90 days</div>
+              <div style={{fontSize:13,color:T.muted}}>No checks or mortgage renewals due in the next 90 days</div>
             </div>
             :alerts.map(ch=>(
-              <CheckRow key={ch.id} check={ch} subtitle={`${ch.property_address?.split(",")[0]} · ${ch.company_name}`} onEdit={()=>openSheet("editCheck",ch)}/>
+              <CheckRow key={ch.id} check={ch} subtitle={`${ch.property_address?.split(",")[0]} · ${ch.company_name}`} onEdit={()=>openItem(ch)}/>
             ))
           }
         </>}
@@ -873,7 +1045,10 @@ export default function App() {
           <Card>
             <div style={{fontSize:14,fontWeight:600,color:T.text,marginBottom:4}}>Signed in as</div>
             <div style={{fontSize:13,color:T.muted,marginBottom:12}}>{session.user.email}</div>
-            <Btn label="Sign out" variant="ghost" onClick={()=>supabase.auth.signOut()}/>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <Btn label="Account & password" onClick={()=>setAccountOpen(true)}/>
+              <Btn label="Sign out" variant="ghost" onClick={()=>supabase.auth.signOut()}/>
+            </div>
           </Card>
 
           {isOwner&&(
@@ -889,7 +1064,7 @@ export default function App() {
           <Card>
             <div style={{fontSize:14,fontWeight:600,color:T.text,marginBottom:4}}>Back up your data</div>
             <div style={{fontSize:12,color:T.muted,marginBottom:12,lineHeight:1.5}}>
-              Downloads a file with everything you can see here (companies, properties, checks, financials). Do this now and then, and always before big changes.
+              Downloads a file with everything you can see here (companies, properties, checks, financials, tenants). Do this now and then, and always before big changes.
             </div>
             <Btn label="Download backup" onClick={downloadBackup}/>
           </Card>
@@ -975,6 +1150,10 @@ export default function App() {
           </select>
         </div>
         <Input label="Due / renewal date" type="date" value={form.due||""} onChange={e=>setForm({...form,due:e.target.value})}/>
+        <Input label="Document link (optional)" type="text" inputMode="url" autoCapitalize="none" value={form.doc_link||""} onChange={e=>setForm({...form,doc_link:e.target.value})} placeholder="Paste a Google Drive / Dropbox / OneDrive link"/>
+        {form.doc_link&&<a href={fixUrl(form.doc_link)} target="_blank" rel="noopener noreferrer" style={{display:"inline-block",fontSize:13,fontWeight:600,color:T.accent,textDecoration:"none",margin:"-6px 0 14px"}}>Open document ↗</a>}
+        <TextArea label="Notes (optional)" value={form.notes||""} onChange={e=>setForm({...form,notes:e.target.value})} placeholder="Engineer, certificate number, anything useful…"/>
+        {sheetError&&<Banner kind="error">{sheetError}</Banner>}
         <div style={{display:"flex",gap:10,marginTop:8}}>
           {sheet==="editCheck"&&<Btn label="Delete" variant="danger" onClick={handleDeleteCheck}/>}
           <Btn label="Cancel" variant="ghost" onClick={closeSheet}/>
@@ -994,6 +1173,41 @@ export default function App() {
         </>}
         <div style={{display:"flex",gap:10,marginTop:8}}><Btn label="Cancel" variant="ghost" onClick={closeSheet}/><button onClick={handleSaveFinancials} style={{flex:1,background:T.accent,color:"#fff",border:"none",borderRadius:10,padding:13,fontSize:14,fontWeight:700,cursor:"pointer"}}>Save</button></div>
       </Sheet>
+
+      <Sheet open={sheet==="addTenancy"||sheet==="editTenancy"} onClose={closeSheet} title={sheet==="addTenancy"?"Add Tenant":"Edit Tenant"}>
+        <Input label="Tenant name" type="text" value={form.tenant_name||""} onChange={e=>setForm({...form,tenant_name:e.target.value})} placeholder="e.g. Sam Jones (add more names if joint)"/>
+        <Input label="Phone (optional)" type="tel" value={form.tenant_phone||""} onChange={e=>setForm({...form,tenant_phone:e.target.value})}/>
+        <Input label="Email (optional)" type="email" autoCapitalize="none" value={form.tenant_email||""} onChange={e=>setForm({...form,tenant_email:e.target.value})}/>
+        <Input label="Tenancy start" type="date" value={form.start_date||""} onChange={e=>setForm({...form,start_date:e.target.value})}/>
+        <Input label="Tenancy end (leave blank if rolling)" type="date" value={form.end_date||""} onChange={e=>setForm({...form,end_date:e.target.value})}/>
+        <Input label="Break clause date (optional)" type="date" value={form.break_clause||""} onChange={e=>setForm({...form,break_clause:e.target.value})}/>
+        <Input label="Rent (£)" type="number" step="any" value={form.rent_amount??""} onChange={e=>setForm({...form,rent_amount:e.target.value})}/>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Rent paid</div>
+          <select value={form.rent_frequency||"monthly"} onChange={e=>setForm({...form,rent_frequency:e.target.value})} style={FIELD_STYLE}>
+            {RENT_FREQS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+          </select>
+        </div>
+        <Input label="Deposit (£)" type="number" step="any" value={form.deposit_amount??""} onChange={e=>setForm({...form,deposit_amount:e.target.value})}/>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Deposit scheme</div>
+          <select value={form.deposit_scheme||""} onChange={e=>setForm({...form,deposit_scheme:e.target.value})} style={FIELD_STYLE}>
+            <option value="">Select…</option>
+            {DEPOSIT_SCHEMES.map(s=><option key={s}>{s}</option>)}
+          </select>
+        </div>
+        <Input label="Deposit reference (optional)" type="text" value={form.deposit_ref||""} onChange={e=>setForm({...form,deposit_ref:e.target.value})}/>
+        <Input label="Tenancy document link (optional)" type="text" inputMode="url" autoCapitalize="none" value={form.doc_link||""} onChange={e=>setForm({...form,doc_link:e.target.value})} placeholder="Paste a Google Drive / Dropbox / OneDrive link"/>
+        <TextArea label="Notes (optional)" value={form.notes||""} onChange={e=>setForm({...form,notes:e.target.value})}/>
+        {sheetError&&<Banner kind="error">{sheetError}</Banner>}
+        <div style={{display:"flex",gap:10,marginTop:8}}>
+          {sheet==="editTenancy"&&<Btn label="Delete" variant="danger" onClick={handleDeleteTenancy}/>}
+          <Btn label="Cancel" variant="ghost" onClick={closeSheet}/>
+          <button onClick={handleSaveTenancy} style={{flex:1,background:T.accent,color:"#fff",border:"none",borderRadius:10,padding:13,fontSize:14,fontWeight:700,cursor:"pointer"}}>Save</button>
+        </div>
+      </Sheet>
+
+      <AccountSheet open={accountOpen} onClose={()=>setAccountOpen(false)} email={session.user.email}/>
 
       {isOwner&&<TeamSheet open={teamOpen} onClose={()=>setTeamOpen(false)} orgId={orgId} companies={companies} myId={session.user.id}/>}
 
